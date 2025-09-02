@@ -5,6 +5,8 @@ declare namespace Cloudflare {
 	interface Env {
 		Chat: DurableObjectNamespace<import("./index").Chat>;
 		ASSETS: Fetcher;
+		BACKEND_URL: string;
+		WEBHOOK_TOKEN: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

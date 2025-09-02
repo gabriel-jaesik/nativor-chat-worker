@@ -6,50 +6,11 @@ export type ChatMessage = {
 };
 
 export type Message =
-  | {
-      type: "add";
-      id: string;
-      content: string;
-      user: string;
-      role: "user" | "assistant";
-    }
-  | {
-      type: "update";
-      id: string;
-      content: string;
-      user: string;
-      role: "user" | "assistant";
-    }
-  | {
-      type: "all";
-      messages: ChatMessage[];
-    };
-
-export const names = [
-  "Alice",
-  "Bob",
-  "Charlie",
-  "David",
-  "Eve",
-  "Frank",
-  "Grace",
-  "Heidi",
-  "Ivan",
-  "Judy",
-  "Kevin",
-  "Linda",
-  "Mallory",
-  "Nancy",
-  "Oscar",
-  "Peggy",
-  "Quentin",
-  "Randy",
-  "Steve",
-  "Trent",
-  "Ursula",
-  "Victor",
-  "Walter",
-  "Xavier",
-  "Yvonne",
-  "Zoe",
-];
+  | { type: "auth"; token: string; userId?: string; roomId?: string }
+  | { type: "auth:ok" }
+  | { type: "typing"; isTyping: boolean }
+  | { type: "ping"; t?: number }
+  | { type: "pong"; t?: number }
+  | { type: "message.created"; id: string; conversationId: string; preview?: string }
+  | { type: "error"; code: string; message: string }
+  | { type: "info"; message: string };

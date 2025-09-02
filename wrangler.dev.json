@@ -4,9 +4,7 @@
   "name": "nativor-chat-worker",
   "migrations": [
     {
-      "new_sqlite_classes": [
-        "Chat"
-      ],
+      "new_sqlite_classes": ["Chat"],
       "tag": "v1"
     }
   ],
@@ -29,7 +27,7 @@
     "port": 8787
   },
   "vars": {
-    "BACKEND_ORIGIN": "https://domestic-core-adolescent-flex.trycloudflare.com",
+    "BACKEND_ORIGIN": "http://localhost:1337",
     "WEBHOOK_TOKEN": "your-secret-token"
   }
 }
