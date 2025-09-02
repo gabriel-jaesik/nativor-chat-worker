@@ -155,6 +155,8 @@ export class Chat extends Server<Env> {
           type: "typing",
           userId: conn.userId ?? "unknown",
           isTyping: !!msg.isTyping,
+          roomId: this.roomId,
+          timestamp: Date.now()
         };
         // fan-out to others in the same DO (exclude sender)
         return this.broadcast(JSON.stringify(payload), [conn.id]);

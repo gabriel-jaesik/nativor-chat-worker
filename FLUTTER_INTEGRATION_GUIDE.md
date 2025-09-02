@@ -96,7 +96,14 @@ class ChatService {
           break;
           
         case 'typing':
-          // 타이핑 상태 처리
+          // 타이핑 상태 처리 (실시간)
+          final userId = data['userId'];
+          final isTyping = data['isTyping'];
+          final roomId = data['roomId'];
+          final timestamp = data['timestamp'];
+          
+          // UI에 타이핑 상태 표시
+          _updateTypingStatus(userId, isTyping, roomId, timestamp);
           break;
           
         case 'error':
@@ -164,6 +171,23 @@ class ChatService {
     });
   }
 
+  void _updateTypingStatus(String userId, bool isTyping, String roomId, int timestamp) {
+    // 타이핑 상태를 UI에 반영
+    // 예: 타이핑 인디케이터 표시/숨김
+  }
+
+  // 타이핑 상태 전송
+  void sendTypingStatus(bool isTyping) {
+    if (_socket == null || !_isConnected) return;
+    
+    final typingMessage = {
+      'type': 'typing',
+      'isTyping': isTyping
+    };
+    
+    _socket!.add(jsonEncode(typingMessage));
+  }
+
   Future<String> _getAuthToken() async {
     // 백엔드에서 토큰을 가져오는 로직
     // 예: HTTP 요청으로 토큰 받기
@@ -189,6 +213,21 @@ void main() {
   
   // 연결 시작
   chatService.connect();
+  
+  // 텍스트 입력 시 타이핑 상태 전송
+  TextField(
+    onChanged: (text) {
+      if (text.isNotEmpty) {
+        chatService.sendTypingStatus(true);
+      } else {
+        chatService.sendTypingStatus(false);
+      }
+    },
+    onSubmitted: (text) {
+      chatService.sendTypingStatus(false);
+      // 메시지 전송 로직
+    },
+  );
 }
 ```
 
@@ -223,9 +262,25 @@ void main() {
 
 ### **타이핑 상태**
 ```json
+// 타이핑 시작
 {
   "type": "typing",
   "isTyping": true
+}
+
+// 타이핑 종료
+{
+  "type": "typing",
+  "isTyping": false
+}
+
+// 서버에서 브로드캐스트 (다른 클라이언트에게)
+{
+  "type": "typing",
+  "userId": "user-123",
+  "isTyping": true,
+  "roomId": "room-123",
+  "timestamp": 1640995200000
 }
 ```
 
