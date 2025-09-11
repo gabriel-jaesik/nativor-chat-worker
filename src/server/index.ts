@@ -21,6 +21,7 @@ export class Chat extends Server<Env> {
   private roomId!: string;
   private authTimers = new Map<string, number>(); // short-lived auth timeouts only
   private pingTimers = new Map<string, number>(); // ping timeout timers
+  private lastMessage: unknown | null = null; // hibernation-friendly last message storage
 
   // No timers or intervals here to keep hibernation-friendly
   onStart() { }
@@ -51,7 +52,7 @@ export class Chat extends Server<Env> {
       clearTimeout(t);
       this.authTimers.delete(conn.id);
     }
-    
+
     // ping 타이머도 정리
     const pingTimer = this.pingTimers.get(conn.id);
     if (pingTimer) {
@@ -98,22 +99,22 @@ export class Chat extends Server<Env> {
         clearTimeout(t);
         this.authTimers.delete(conn.id);
       }
-      
+
       // 인증 완료 후 30초 내에 ping이 오지 않으면 연결 종료
       const pingTimer = setTimeout(() => {
         if (!conn.authed) return; // 이미 연결이 끊어진 경우
-        
-        conn.send(JSON.stringify({ 
-          type: "error", 
-          code: "ping_timeout", 
-          message: "ping timeout - connection will be closed" 
+
+        conn.send(JSON.stringify({
+          type: "error",
+          code: "ping_timeout",
+          message: "ping timeout - connection will be closed"
         }));
         conn.close(1000, "ping timeout");
         this.pingTimers.delete(conn.id);
       }, 30_000) as unknown as number;
-      
+
       this.pingTimers.set(conn.id, pingTimer);
-      
+
       return conn.send(JSON.stringify({ type: "auth:ok" }));
     }
 
@@ -132,22 +133,22 @@ export class Chat extends Server<Env> {
           clearTimeout(pingTimer);
           this.pingTimers.delete(conn.id);
         }
-        
+
         // 새로운 30초 타이머 설정
         const newPingTimer = setTimeout(() => {
           if (!conn.authed) return; // 이미 연결이 끊어진 경우
-          
-          conn.send(JSON.stringify({ 
-            type: "error", 
-            code: "ping_timeout", 
-            message: "ping timeout - connection will be closed" 
+
+          conn.send(JSON.stringify({
+            type: "error",
+            code: "ping_timeout",
+            message: "ping timeout - connection will be closed"
           }));
           conn.close(1000, "ping timeout");
           this.pingTimers.delete(conn.id);
         }, 30_000) as unknown as number;
-        
+
         this.pingTimers.set(conn.id, newPingTimer);
-        
+
         return conn.send(JSON.stringify({ type: "pong", t: msg.t ?? Date.now() }));
 
       case "typing": {
@@ -156,7 +157,8 @@ export class Chat extends Server<Env> {
           userId: conn.userId ?? "unknown",
           isTyping: !!msg.isTyping,
           roomId: this.roomId,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          before: this.lastMessage // 이전 메시지 정보도 포함
         };
         // fan-out to others in the same DO (exclude sender)
         return this.broadcast(JSON.stringify(payload), [conn.id]);
@@ -197,8 +199,33 @@ export class Chat extends Server<Env> {
         });
       }
 
-      this.broadcast(JSON.stringify(body.message), body.excludeConnectionIds);
+      // 브로드캐스트할 메시지에 이전 메시지 정보 추가
+      const broadcastMessage = {
+        ...body.message,
+        before: this.lastMessage
+      };
+
+      // 마지막 메시지 저장 (hibernation 친화적)
+      this.lastMessage = body.message;
+
+      this.broadcast(JSON.stringify(broadcastMessage), body.excludeConnectionIds);
       return new Response(JSON.stringify({ success: true }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    // 마지막 메시지 조회 엔드포인트
+    if (url.pathname === "/last-message" && request.method === "GET") {
+      const auth = request.headers.get("authorization") || "";
+      if (auth !== `Bearer ${this.env.WEBHOOK_TOKEN}`) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        lastMessage: this.lastMessage,
+        roomId: this.roomId
+      }), {
         headers: { "Content-Type": "application/json" }
       });
     }
@@ -216,12 +243,12 @@ export class Chat extends Server<Env> {
         if (m) return m[1];
         return u.searchParams.get("room");
       }
-      
+
       // PartyKit에서 헤더로 전달된 room 정보 사용
       // @ts-ignore
       const roomHeader = conn.requestHeaders?.get?.("X-PartyKit-Room");
       if (roomHeader) return roomHeader;
-      
+
       // 원본 URL에서 room 정보 추출
       // @ts-ignore
       const originalUrl = conn.requestHeaders?.get?.("X-Original-URL");
@@ -230,12 +257,12 @@ export class Chat extends Server<Env> {
         const m = u.pathname.match(/^\/rooms\/([^/]+)$/);
         if (m) return m[1];
       }
-      
+
       // PartyKit 내장 room 정보 사용
       // @ts-ignore
       if (conn.room?.name) return conn.room.name;
-      
-    } catch (error) { 
+
+    } catch (error) {
       // silent fail
     }
 
@@ -255,12 +282,12 @@ export class Chat extends Server<Env> {
           body: "{}",
         }
       );
-      
+
       if (res.status === 200) {
         const data = await res.json().catch(() => ({})) as { userId?: string };
         return { success: true, userId: data.userId };
       }
-      
+
       return { success: false };
     } catch {
       return { success: false };
@@ -297,7 +324,7 @@ export default {
       });
 
       const resp = await stub.fetch(direct);
-      
+
       if (resp.status === 101) return resp; // WS upgraded
       return resp;
     }
@@ -329,7 +356,32 @@ export default {
       return new Response(res.body, { status: res.status, headers: { "Content-Type": "application/json" } });
     }
 
-    // 3) fallthrough: Party routing or static assets
+    // 3) 마지막 메시지 조회: /api/last-message/:roomId
+    if (url.pathname.match(/^\/api\/last-message\/[^/]+$/) && request.method === "GET") {
+      const roomId = url.pathname.split("/")[3];
+      if (!roomId) {
+        return new Response(JSON.stringify({ success: false, error: "roomId required" }), {
+          status: 400, headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      const id = env.Chat.idFromName(roomId);
+      const stub = env.Chat.get(id);
+
+      const res = await stub.fetch(new Request("http://internal/last-message", {
+        method: "GET",
+        headers: {
+          "Authorization": request.headers.get("authorization") || "",
+          "Content-Type": "application/json",
+          "X-PartyKit-Room": roomId,
+          "X-PartyKit-Party": "chat",
+        },
+      }));
+
+      return new Response(res.body, { status: res.status, headers: { "Content-Type": "application/json" } });
+    }
+
+    // 4) fallthrough: Party routing or static assets
     return (await routePartykitRequest(request, { ...env })) || env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
